@@ -74,9 +74,6 @@ public class EventPool {
 		mListeners = new HashMap<String, List<ListenerHolder>>();
 		mEvents = new LinkedList<Event>();
 		dispatching = true;
-		handler = new Handler(Looper.getMainLooper());
-		runner = new EventRunner();
-		runner.start();
 	}
 
 	private boolean realAttach(Object target) {
@@ -121,6 +118,8 @@ public class EventPool {
 				continue;
 			}
 
+			boolean isMain = eventFilter.isMain();
+
 			synchronized (poolLock) {
 				for (String event : events) {
 					if (TextUtils.isEmpty(event)) {
@@ -129,6 +128,7 @@ public class EventPool {
 
 					Log.d(TAG, "attach filter event " + event);
 					ListenerHolder holder = new ListenerHolder();
+					holder.setIsMain(isMain);
 					holder.setEvent(event);
 					holder.setListener(target);
 					holder.setMethod(method);
@@ -198,6 +198,12 @@ public class EventPool {
 			eventLock.notify();
 		}
 
+		if (runner == null) {
+			handler = new Handler(Looper.getMainLooper());
+			runner = new EventRunner();
+			runner.start();
+		}
+
 		return true;
 	}
 
@@ -205,8 +211,11 @@ public class EventPool {
 		Log.d(TAG, "realQuit");
 		dispatching = false;
 
-		runner.interrupt();
-		runner = null;
+		if (runner != null) {
+			runner.interrupt();
+			runner = null;
+			handler = null;
+		}
 
 		synchronized (eventLock) {
 			mEvents.clear();
@@ -265,7 +274,7 @@ public class EventPool {
 		}
 
 		for (final ListenerHolder holder : list) {
-			if (holder.getOnMain()) {
+			if (holder.getIsMain()) {
 				handler.post(new Runnable() {
 					public void run() {
 						realRunEvent(holder, event);
@@ -278,21 +287,21 @@ public class EventPool {
 	}
 
 	private void realRunEvent(ListenerHolder holder, Event event) {
-		Method method = holder.getMethod();
-		boolean oldAcc = method.isAccessible();
-		if (!oldAcc) {
-			method.setAccessible(true);
-		}
-		Object listener = holder.getListener();
-
 		try {
+			Method method = holder.getMethod();
+			boolean oldAcc = method.isAccessible();
+			if (!oldAcc) {
+				method.setAccessible(true);
+			}
+			Object listener = holder.getListener();
+
 			method.invoke(listener, event);
+
+			if (method.isAccessible() != oldAcc) {
+				method.setAccessible(oldAcc);
+			}
 		} catch (Exception e) {
 			e.printStackTrace();
-		}
-
-		if (method.isAccessible() != oldAcc) {
-			method.setAccessible(oldAcc);
 		}
 	}
 }

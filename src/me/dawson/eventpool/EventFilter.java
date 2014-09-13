@@ -9,4 +9,6 @@ import java.lang.annotation.Target;
 @Target(ElementType.METHOD)
 public @interface EventFilter {
 	String[] events();
+
+	boolean isMain() default true;
 }

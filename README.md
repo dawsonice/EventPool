@@ -4,7 +4,7 @@
 
 An easy and flexiable event bus for Android.
 
-No need to declare receivers ikplements.
+No need to declare receivers implements.
 
 Multiple event handler functions supported.
 
@@ -15,16 +15,22 @@ Filter events for listener's receive functions,
 More than one filters can be defined in each class.
 
 ```
+receive "started" & "finished" events on main thread
+
 @EventFilter(events = { "started", "finished" })
 private void onStatus(Event e) {
 	// handle status events here
+	String eventName = e.getName();
+	tvStatus.setText(eventName);
 }
 
-@EventFilter(events = { "progress"})
+receive "progress" event on worker thread
+
+@EventFilter(events = { "progress"}, isMain = false)
 private void onProgress(Event e) {
 	// handle progress event here
 	int progress = e.getInt("progress");
-	progressBar.setProgress(progress);
+	Log.d(TAG, "onProgress " + progress);
 }
 
 ```
@@ -50,7 +56,8 @@ EventPool.sendEvent(event);
 ```
 
 Quit event pool,
-event pool can quit by user or no listener exist.
+
+event pool can quit by user or automaticly by detach all listeners
 
 ```
 EventPool.quit()

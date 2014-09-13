@@ -3,13 +3,21 @@ package me.dawson.eventpool;
 import java.lang.reflect.Method;
 
 public class ListenerHolder {
+
+	// event name to receive
 	private String event;
+
+	// corresponding method name
 	private Method method;
+
+	// listener object stub
 	private Object listener;
-	private boolean onMain;
+
+	// if run on main thread
+	private boolean isMain;
 
 	public ListenerHolder() {
-		onMain = true;
+		isMain = true;
 	}
 
 	public String getEvent() {
@@ -36,11 +44,11 @@ public class ListenerHolder {
 		this.listener = listener;
 	}
 
-	public boolean getOnMain() {
-		return onMain;
+	public boolean getIsMain() {
+		return isMain;
 	}
 
-	public void setOnMain(boolean onMain) {
-		this.onMain = onMain;
+	public void setIsMain(boolean isMain) {
+		this.isMain = isMain;
 	}
 }
