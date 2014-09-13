@@ -10,26 +10,52 @@ Multiple event handler functions supported.
 
 ===
 
-Filter events for function
+Filter events for listener's receive functions,
+
+More than one filters can be defined in each class.
 
 ```
-@EventFilter(events = { "progress", "started" })
-private void onEvent(Event e) {
-	// handle events here
+@EventFilter(events = { "started", "finished" })
+private void onStatus(Event e) {
+	// handle status events here
 }
-```
 
-Attach filter for events
-
-```
-EventPool.getInstance().attach(this);
-```
-
-Detach filter for events;
+@EventFilter(events = { "progress"})
+private void onProgress(Event e) {
+	// handle progress event here
+	int progress = e.getInt("progress");
+	progressBar.setProgress(progress);
+}
 
 ```
-EventPool.getInstance().detach(this);
+
+Attach listener for events
+
 ```
+EventPool.attach(this);
+```
+
+Detach listener for events;
+
+```
+EventPool.detach(this);
+```
+
+Send envets to pool
+
+```
+Event event = new Event("event_name");
+event.put("progress", 64);
+EventPool.sendEvent(event);
+```
+
+Quit event pool,
+event pool can quit by user or no listener exist.
+
+```
+EventPool.quit()
+```
+
 
 ===
 
