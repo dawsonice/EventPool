@@ -19,7 +19,7 @@ public class EventPool {
 
 	private volatile static EventPool instance;
 
-	public static EventPool getInstance() {
+	private static EventPool getInstance() {
 		synchronized (EventPool.class) {
 			if (instance == null) {
 				instance = new EventPool();
@@ -32,7 +32,7 @@ public class EventPool {
 		if (event == null || TextUtils.isEmpty(event.getName())) {
 			return false;
 		}
-		return getInstance().doSendEvent(event);
+		return getInstance().realSendEvent(event);
 	}
 
 	public static boolean sendEvent(String name) {
@@ -40,7 +40,24 @@ public class EventPool {
 			return false;
 		}
 		Event event = new Event(name);
-		return getInstance().doSendEvent(event);
+		return getInstance().realSendEvent(event);
+	}
+
+	public static void quit() {
+		if (instance == null) {
+			return;
+		}
+
+		instance.realQuit();
+		instance = null;
+	}
+
+	public static boolean attach(Object object) {
+		return getInstance().realAttach(object);
+	}
+
+	public static boolean detach(Object object) {
+		return getInstance().realDetach(object);
 	}
 
 	private Object eventLock;
@@ -56,15 +73,18 @@ public class EventPool {
 		poolLock = new Object();
 		mListeners = new HashMap<String, List<ListenerHolder>>();
 		mEvents = new LinkedList<Event>();
-		dispatching = false;
+		dispatching = true;
 		handler = new Handler(Looper.getMainLooper());
 		runner = new EventRunner();
+		runner.start();
 	}
 
-	public boolean attach(Object target) {
+	private boolean realAttach(Object target) {
 		if (target == null) {
 			return false;
 		}
+
+		Log.d(TAG, "realAttach " + target);
 
 		Class<?> clazz = target.getClass();
 		Method[] methods = clazz.getDeclaredMethods();
@@ -76,6 +96,7 @@ public class EventPool {
 				method = null;
 				continue;
 			}
+
 			EventFilter eventFilter = method.getAnnotation(filterClazz);
 			String[] events = eventFilter.events();
 
@@ -123,14 +144,15 @@ public class EventPool {
 			}
 		}
 
-		Log.d(TAG, "attach " + target);
 		return true;
 	}
 
-	public boolean detach(Object target) {
+	private boolean realDetach(Object target) {
 		if (target == null) {
 			return false;
 		}
+
+		Log.d(TAG, "realDetach " + target);
 
 		synchronized (poolLock) {
 			Iterator<Map.Entry<String, List<ListenerHolder>>> iter = mListeners
@@ -150,90 +172,127 @@ public class EventPool {
 					iter.remove();
 				}
 			}
-		}
 
-		Log.d(TAG, "detach " + target);
-
-		return true;
-	}
-
-	private boolean doSendEvent(Event event) {
-		if (event == null || TextUtils.isEmpty(event.getName())) {
-			return false;
-		}
-
-		synchronized (eventLock) {
-			mEvents.addLast(event);
-		}
-
-		dispatchEvent();
-		return true;
-	}
-
-	private void dispatchEvent() {
-		if (dispatching) {
-			return;
-		}
-
-		Event event = null;
-		synchronized (eventLock) {
-			if (!mEvents.isEmpty()) {
-				event = mEvents.removeFirst();
+			if (mListeners.isEmpty()) {
+				realQuit();
 			}
 		}
 
+		return true;
+	}
+
+	private boolean realSendEvent(Event event) {
+		if (event == null) {
+			return false;
+		}
+
+		String eventName = event.getName();
+		if (TextUtils.isEmpty(eventName)) {
+			return false;
+		}
+
+		Log.d(TAG, "realSendEvent " + eventName + " " + event.hashCode());
+
+		synchronized (eventLock) {
+			mEvents.addLast(event);
+			eventLock.notify();
+		}
+
+		return true;
+	}
+
+	private void realQuit() {
+		Log.d(TAG, "realQuit");
+		dispatching = false;
+
+		runner.interrupt();
+		runner = null;
+
+		synchronized (eventLock) {
+			mEvents.clear();
+		}
+
+		synchronized (poolLock) {
+			mListeners.clear();
+		}
+	}
+
+	private class EventRunner extends Thread {
+
+		@Override
+		public void run() {
+			Log.d(TAG, "enter event runner");
+			while (dispatching) {
+				Event event = null;
+				synchronized (eventLock) {
+					if (mEvents.isEmpty()) {
+						try {
+							eventLock.wait();
+						} catch (InterruptedException e) {
+							e.printStackTrace();
+						}
+					}
+				}
+
+				synchronized (eventLock) {
+					if (!mEvents.isEmpty()) {
+						event = mEvents.removeFirst();
+					}
+				}
+
+				if (event == null || !dispatching) {
+					break;
+				}
+
+				runEvent(event);
+			}
+			Log.d(TAG, "exit event runner");
+		}
+	};
+
+	private void runEvent(final Event event) {
 		if (event == null) {
 			return;
 		}
 
-		runner.setEvent(event);
-		handler.post(runner);
+		String eventName = event.getName();
+		Log.d(TAG, "runEvent " + eventName + " " + event.hashCode());
+
+		List<ListenerHolder> list = mListeners.get(eventName);
+		if (list == null || list.isEmpty()) {
+			Log.w(TAG, "no listener for " + eventName);
+			return;
+		}
+
+		for (final ListenerHolder holder : list) {
+			if (holder.getOnMain()) {
+				handler.post(new Runnable() {
+					public void run() {
+						realRunEvent(holder, event);
+					}
+				});
+			} else {
+				realRunEvent(holder, event);
+			}
+		}
 	}
 
-	class EventRunner implements Runnable {
-		private Event event = null;
+	private void realRunEvent(ListenerHolder holder, Event event) {
+		Method method = holder.getMethod();
+		boolean oldAcc = method.isAccessible();
+		if (!oldAcc) {
+			method.setAccessible(true);
+		}
+		Object listener = holder.getListener();
 
-		public void setEvent(Event e) {
-			this.event = e;
+		try {
+			method.invoke(listener, event);
+		} catch (Exception e) {
+			e.printStackTrace();
 		}
 
-		@Override
-		public void run() {
-			dispatching = true;
-			runEvent();
-			dispatching = false;
-			dispatchEvent();
+		if (method.isAccessible() != oldAcc) {
+			method.setAccessible(oldAcc);
 		}
-
-		private void runEvent() {
-			if (event == null) {
-				return;
-			}
-			String eventName = event.getName();
-			List<ListenerHolder> list = mListeners.get(eventName);
-			if (list == null || list.isEmpty()) {
-				Log.w(TAG, "no listener for " + eventName);
-				return;
-			}
-
-			for (ListenerHolder holder : list) {
-				Method method = holder.getMethod();
-				boolean oldAcc = method.isAccessible();
-				if (!oldAcc) {
-					method.setAccessible(true);
-				}
-				Object listener = holder.getListener();
-
-				try {
-					method.invoke(listener, event);
-				} catch (Exception e) {
-					e.printStackTrace();
-				}
-
-				if (method.isAccessible() != oldAcc) {
-					method.setAccessible(oldAcc);
-				}
-			}
-		}
-	};
+	}
 }

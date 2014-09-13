@@ -6,7 +6,13 @@ import java.util.Map;
 public class Event {
 	public static final String TAG = "Event";
 
+	// event name
 	private String name;
+
+	// should be dispatched on main thread
+	private boolean onMain;
+
+	// event parameters
 	private Map<String, Object> mMap;
 
 	public Event(String name) {
@@ -40,5 +46,13 @@ public class Event {
 			return (Integer) obj;
 		}
 		return 0;
+	}
+
+	public boolean isOnMain() {
+		return onMain;
+	}
+
+	public void setOnMain(boolean onMain) {
+		this.onMain = onMain;
 	}
 }
